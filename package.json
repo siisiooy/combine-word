@@ -1,0 +1,34 @@
+{
+  "name": "combine-word",
+  "version": "1.0.0",
+  "description": "Combine Word documents including header and footer.",
+  "main": "index.js",
+  "scripts": {
+    "go": "node test/index.js"
+  },
+  "keywords": [
+    "word",
+    "docx",
+    "merge",
+    "combine",
+    "document",
+    "office",
+    "ms-word",
+    "docx-merge",
+    "word-merge",
+    "docx-combine",
+    "combine-word",
+    "merge-word-documents"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "author": "siisiooy",
+  "license": "ISC",
+  "dependencies": {
+    "fs-extra": "^11.3.0",
+    "jszip": "^2.6.1",
+    "xmldom": "^0.6.0"
+  }
+}
