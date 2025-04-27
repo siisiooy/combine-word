@@ -32,9 +32,8 @@ combine.save('nodebuffer', (fileData) => {
 
 ## 参数说明
 - `files`: 要合并的 Word 文件数组。
-
 - `options`: 配置选项。
-  `options.pageBreak`: 多个文件拼合是否在合并时插入分页符。
+- `options.pageBreak`: 多个文件拼合是否在合并时插入分页符。
 
 
 
