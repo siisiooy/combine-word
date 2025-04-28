@@ -33,12 +33,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/combine-word.git"
+    "url": "https://github.com/siisiooy/combine-word.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/combine-word/issues"
+    "url": "https://github.com/siisiooy/combine-word/issues"
   },
-  "homepage": "https://github.com/your-username/combine-word#readme",
+  "homepage": "https://github.com/siisiooy/combine-word#readme",
   "author": "siisiooy",
   "license": "ISC",
   "dependencies": {
