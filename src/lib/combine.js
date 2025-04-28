@@ -7,18 +7,22 @@ const { DOMParser, XMLSerializer } = require('xmldom');
  * 
  * @param {Array} _files - 包含多个 Word 文件的 ZIP 文件数组。
  */
-function updateModifiedDate(_files) {
+function updateCore(_files, docInfo = {
+  title: '',
+  subject: '',
+  author: '',
+  vision: '',
+  keywords: '',
+  description: '',
+  lastModifiedBy: '',
+}) {
   const corePropertiesPath = 'docProps/core.xml';  // coreProperties 文件路径
   const xml = _files[0].file(corePropertiesPath).asText();  // 获取文件内容
 
   if (!xml) {
     console.warn('coreProperties.xml not found in the first file.');
+    return;  // 如果文件不存在，返回
   }
-
-  // 使用 DOMParser 解析 XML
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xml, 'application/xml');
-
   // 获取当前时间并格式化为 W3CDTF 格式 (例如：2025-04-25T08:24:00Z)
   const currentDate = new Date();
   currentDate.setMilliseconds(0);  // 去除毫秒部分
@@ -26,12 +30,22 @@ function updateModifiedDate(_files) {
   // 获取 UTC 时间并手动格式化为 "YYYY-MM-DDTHH:MM:SSZ"
   const formattedDate = currentDate.toISOString().slice(0, 17) + '00Z';  // 获取到秒并加上 Z 表示 UTC 时间
 
-  // 查找 dcterms:modified 元素并更新其内容
-  const modifiedElement = doc.getElementsByTagName('dcterms:modified')[0];
-  if (modifiedElement) {
-    modifiedElement.textContent = formattedDate;  // 更新 modified 元素的文本内容
-  } else {
-    console.warn('dcterms:modified element not found in coreProperties.xml.');
+  const updateCoreProperties = {
+    'dc:title': docInfo.title,
+    'dc:subject': docInfo.subject,
+    'dc:creator': docInfo.author,
+    'cp:keywords': docInfo.keywords,
+    'dc:description': docInfo.description,
+    'cp:lastModifiedBy': docInfo.lastModifiedBy,
+    'cp:revision': docInfo.vision,
+    'dcterms:modified': formattedDate,
+  }
+
+  // 使用 DOMParser 解析 XML
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'application/xml');
+  for (const [key, value] of Object.entries(updateCoreProperties)) {
+    updateOrCreateElement(doc, key, value);  // 更新或创建元素
   }
 
   // 将修改后的 XML 转为字符串
@@ -40,6 +54,29 @@ function updateModifiedDate(_files) {
 
   // 将更新后的 coreProperties.xml 写回文件
   _files[0].file(corePropertiesPath, updatedXml);
+}
+
+/**
+ * 检查文档中是否存在指定的元素，如果存在则更新其文本内容，否则创建新元素并添加到文档中。
+ * 
+ * @param {Document} doc - 需要更新的 XML 或 HTML 文档对象。
+ * @param {string} tagName - 要查找或创建的元素的标签名。
+ * @param {string} textContent - 要设置到元素中的文本内容。
+ * 
+ * @returns {void}
+ */
+function updateOrCreateElement(doc, tagName, textContent) {
+  if (textContent === undefined || textContent === null) {
+    return;  // 如果文本内容为空，直接返回
+  }
+  let element = doc.getElementsByTagName(tagName)[0];
+  if (element) {
+    element.textContent = textContent;
+    return;  // 如果元素存在，更新其文本内容并返回
+  }
+  element = doc.createElement(tagName);
+  element.textContent = textContent;
+  doc.documentElement.appendChild(element);  // 将新元素添加到文档
 }
 
 /**
@@ -162,9 +199,8 @@ function combineDocuments(_files, _pageBreak) {
             br.setAttribute('w:type', 'page');
             r.appendChild(br);
             newSectPr.appendChild(r);
+            bodyClone.appendChild(newSectPr);
           }
-
-          bodyClone.appendChild(newSectPr);
         }
       }
     });
@@ -254,11 +290,11 @@ function combineRelationships(_files) {
 
         if (!typesTargets.includes(partName)) {
           typesElement.appendChild(overridesEle.cloneNode(true));
-          typesTargets.push(partName); 
+          typesTargets.push(partName);
         }
       }
 
-      
+
       const defaultExtensions = Array.from(typesElement.getElementsByTagName('Default')).map(r => r.getAttribute('Extension'));
       for (let i = 0; i < extensions.length; i++) {
         const extensionEle = extensions[i];
@@ -338,7 +374,7 @@ function mergeFiles(_files) {
       if (mediaFolder) {
         Object.keys(mediaFolder.files).forEach(fileName => {
           // TODO: 'word/endnotes', 'word/footnotes','word/numbering' 这类文件没做对应的合并处理，
-          if (['word/media/', 'word/header', 'word/footer', 'word/endnotes', 'word/footnotes','word/numbering'].some(item => fileName.startsWith(item))) {
+          if (['word/media/', 'word/header', 'word/footer', 'word/endnotes', 'word/footnotes', 'word/numbering'].some(item => fileName.startsWith(item))) {
             const file = mediaFolder.files[fileName];
             baseZip.file(fileName, file.asUint8Array());  // 将文件复制到 baseZip 中
           }
@@ -367,4 +403,4 @@ function mergeFiles(_files) {
   return baseZip; // 返回更新后的第一个文件
 }
 
-module.exports = { combineDocuments, combineRelationships, combineAppInfo, mergeFiles, updateModifiedDate };
+module.exports = { combineDocuments, combineRelationships, combineAppInfo, mergeFiles, updateCore };

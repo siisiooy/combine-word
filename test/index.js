@@ -1,7 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
-const CombineWord = require('../index'); // 确保你的 CombineWord 文件路径正确
-const { file } = require('jszip/lib/object');
+const CombineWord = require('../dist/combine-word'); // 引用打包后的文件
 
 // 读取 example 目录下的 Word 文件
 const inputDir = path.resolve(__dirname, "./example"); // 需要合并的 Word 文件目录
@@ -17,7 +16,7 @@ const files = fs.readdirSync(inputDir)
   .map(file => path.join(inputDir, file));
 
 if (files.length < 2) {
-  console.error("请提供至少两个 Word 文件进行合并！");
+  console.error("请提供至少两个 Word 文件进行合并！测试文件夹：", inputDir);
   process.exit(1);
 }
 
@@ -25,7 +24,7 @@ if (files.length < 2) {
 const fileBuffers = files.map(file => fs.readFileSync(file).buffer);
 
 // 合并文件
-const docx = new CombineWord({ pageBreak: true }, fileBuffers);
+const docx = new CombineWord({ pageBreak: true, }, fileBuffers);
 docx.save("nodebuffer", buffer => {
   fs.writeFileSync(outputFilePath, buffer);
   console.log(`合并完成！文件保存至: ${outputFilePath}`);

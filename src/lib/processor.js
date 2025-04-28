@@ -1,4 +1,3 @@
-const path = require('path');
 const { DOMParser, XMLSerializer } = require('xmldom');
 
 /**
@@ -38,13 +37,13 @@ function processRels(zip, relIdStart = -1, startIndex = { headerIndex: 1, footer
     const target = rel.getAttribute('Target');
 
     if (target.includes('header')) {
-      oldName = path.basename(target); // 例如 "header1.xml"
-      const ext = path.extname(oldName); // 例如 ".xml"
+      oldName = target.split('/').pop(); // 获取文件名，比如 "header1.xml"
+      const ext = oldName.slice(oldName.lastIndexOf('.')); // 获取文件扩展名，比如 ".xml"
       newName = `header${fileIndexMap.headerIndex++}${ext}`; // 例如 "header2.xml"
     }
     if (target.includes('footer')) {
-      oldName = path.basename(target);
-      const ext = path.extname(oldName);
+      oldName = target.split('/').pop();
+      const ext = oldName.slice(oldName.lastIndexOf('.'));
       newName = `footer${fileIndexMap.footerIndex++}${ext}`;
     }
     if (target.includes('media/')) {
@@ -205,6 +204,16 @@ function processStyles(zip, styleStart = -1, styleNumStart = 0) {
   return { nextStyleId: cur, styleNumStart: numCur };
 }
 
+/**
+ * 更新指定元素中指定属性的 ID 值，根据传入的映射表将旧的 ID 替换为新的 ID。
+ * 
+ * @param {Element} style - 当前样式元素，用于获取目标标签和属性。
+ * @param {string} tagName - 目标标签的名称，通常是样式元素的子标签。
+ * @param {string} attributeName - 需要更新的属性名称（如 'w:val' 或其他属性）。
+ * @param {Object} mapping - 一个映射对象，键是旧的 ID，值是新的 ID，用于替换。
+ * 
+ * @returns {void} 函数没有返回值，直接修改元素的属性。
+ */
 function processStyleAttribute(style, tagName, attributeName, mapping) {
   const element = style.getElementsByTagName(tagName)[0];
   if (element) {
@@ -213,6 +222,50 @@ function processStyleAttribute(style, tagName, attributeName, mapping) {
       element.setAttribute(attributeName, mapping[oldId] || oldId); // 更新 ID
     }
   }
+}
+
+/**
+ * 更新 XML 节点中的特定属性值。
+ *
+ * @param {NodeList} nodes - 需要更新的 XML 节点集合。
+ * @param {string} attr - 需要修改的属性名。
+ * @param {string} newValue - 新的属性值。
+ */
+function updateNodeAttributes(docXml) {
+  const nodesKey = ['w:p', 'w:tr'];
+  const attributeObject = {
+    'w14:textId': '77777777',
+    'w:rsidR': '00000000',
+    'w:rsidRDefault': '00000000'
+  };
+  for (const key of nodesKey) {
+    const nodes = docXml.getElementsByTagName(key)
+    Array.from(nodes).forEach(node => {
+      for (const [attr, newValue] of Object.entries(attributeObject)) {
+        if (node.hasAttribute(attr)) {
+          node.setAttribute(attr, newValue);
+        }
+      }
+    });
+  }
+}
+
+/**
+ * 替换 XML 内容中的旧 ID 为新 ID。
+ *
+ * @param {string} xml - 原始 XML 内容。
+ * @param {Object} mapping - 包含旧 ID 和新 ID 映射的对象。
+ * @returns {string} - 更新后的 XML 内容。
+ */
+function replaceIdsInXml(xml, mapping) {
+  const timestamp = 'combine_id_' + new Date().getTime();
+  // 替换文档中的旧 ID 为新 ID
+  for (const [oldId, newId] of Object.entries(mapping)) {
+    const re = new RegExp(`"${oldId}"`, 'g');
+    xml = xml.replace(re, `"${timestamp}${newId}"`);
+  }
+  // 移除临时时间戳
+  return xml.replace(new RegExp(`${timestamp}`, 'g'), '');
 }
 
 /**
@@ -225,47 +278,15 @@ function processDocument(zip, mapping) {
   const relsPath = 'word/document.xml';
   let xml = zip.file(relsPath).asText();
 
-  const timestamp = 'combine_id_' + new Date().getTime();
-  // 替换文档中的旧 ID 为新 ID
-  for (const [oldId, newId] of Object.entries(mapping)) {
-    const re = new RegExp(`"${oldId}"`, 'g');
-    xml = xml.replace(re, `"${timestamp}${newId}"`);
-  }
-  xml = xml.replace(new RegExp(`${timestamp}`, 'g'), '');
+
+  // 替换 ID
+  xml = replaceIdsInXml(xml, mapping);
 
   const docXml = new DOMParser().parseFromString(xml, 'application/xml');
-  // 先遍历所有 <w:p> 和 <w:tr> 标签，修改相关属性
-  const pNodes = docXml.getElementsByTagName('w:p');
 
-  // 修改 <w:p> 和 <w:tr> 标签的属性
-  Array.from(pNodes).forEach(pNode => {
-    if (pNode.hasAttribute('w14:textId')) {
-      pNode.setAttribute('w14:textId', '77777777');
-    }
+  // 更新 <w:p> 和 <w:tr> 标签的属性
+  updateNodeAttributes(docXml);
 
-    if (pNode.hasAttribute('w:rsidR')) {
-      pNode.setAttribute('w:rsidR', '00000000');
-    }
-
-    if (pNode.hasAttribute('w:rsidRDefault')) {
-      pNode.setAttribute('w:rsidRDefault', '00000000');
-    }
-  });
-
-  const trNodes = docXml.getElementsByTagName('w:tr');
-  Array.from(trNodes).forEach(trNode => {
-    if (trNode.hasAttribute('w14:textId')) {
-      trNode.setAttribute('w14:textId', '77777777');
-    }
-
-    if (trNode.hasAttribute('w:rsidR')) {
-      trNode.setAttribute('w:rsidR', '00000000');
-    }
-
-    if (trNode.hasAttribute('w:rsidRDefault')) {
-      trNode.setAttribute('w:rsidRDefault', '00000000');
-    }
-  });
   // 重新序列化 XML 文档为字符串
   const serializer = new XMLSerializer();
   const updatedXml = serializer.serializeToString(docXml);
@@ -273,55 +294,37 @@ function processDocument(zip, mapping) {
   zip.file(relsPath, updatedXml);
 }
 
-
+/**
+ * 处理 ZIP 文件中的 Word 文档关系文件（如 header 和 footer），根据提供的 ID 映射替换文件内容中的 ID，并修改特定 XML 属性。
+ * 
+ * @param {JSZip} zip - 需要处理的 ZIP 文件，包含一个 `word` 文件夹，其中包含待处理的 Word 文档文件。
+ * @param {Object} mapping - 一个映射对象，其中键是旧的 ID，值是新的 ID。用于在文件内容中替换对应的 ID。
+ * 
+ * @returns {void} 函数没有返回值，直接修改 ZIP 文件中的内容。
+ * 
+ * @description
+ * 1. 遍历 ZIP 文件中的 `word/media` 文件夹，查找以 `word/header` 或 `word/footer` 开头的文件。
+ * 2. 对找到的文件内容进行文本替换，替换所有旧 ID 为新的 ID，使用映射对象 `mapping`。
+ * 3. 修改 XML 中的 `<w:p>` 和 `<w:tr>` 标签的属性：将 `w14:textId` 设置为 '77777777'，`w:rsidR` 和 `w:rsidRDefault` 设置为 '00000000'。
+ * 4. 最后，更新修改后的 XML 内容并将其写回 ZIP 文件。
+ */
 function processFileRels(zip, mapping) {
   const mediaFolder = zip.folder("word");
-  // 复制 word/media 中的文件到第一个文件对应目录
+
   if (mediaFolder) {
     Object.keys(mediaFolder.files).forEach(fileName => {
       if (['word/header', 'word/footer'].some(item => fileName.startsWith(item))) {
         const file = mediaFolder.files[fileName];
         let xml = file.asText();
-        const timestamp = 'combine_id_' + new Date().getTime();
 
-        for (const [oldId, newId] of Object.entries(mapping)) {
-          const re = new RegExp(`"${oldId}"`, 'g');
-          xml = xml.replace(re, `"${timestamp}${newId}"`);
-        }
-
-        xml = xml.replace(new RegExp(`${timestamp}`, 'g'), '');
+        // 替换 ID
+        xml = replaceIdsInXml(xml, mapping);
 
         const docXml = new DOMParser().parseFromString(xml, 'application/xml');
-        // 先遍历所有 <w:p> 和 <w:tr> 标签，修改相关属性
-        const pNodes = docXml.getElementsByTagName('w:p');
-        // 修改 <w:p> 和 <w:tr> 标签的属性
-        Array.from(pNodes).forEach(pNode => {
-          if (pNode.hasAttribute('w14:textId')) {
-            pNode.setAttribute('w14:textId', '77777777');
-          }
 
-          if (pNode.hasAttribute('w:rsidR')) {
-            pNode.setAttribute('w:rsidR', '00000000');
-          }
+        // 更新 <w:p> 和 <w:tr> 标签的属性
+        updateNodeAttributes(docXml);
 
-          if (pNode.hasAttribute('w:rsidRDefault')) {
-            pNode.setAttribute('w:rsidRDefault', '00000000');
-          }
-        });
-        const trNodes = docXml.getElementsByTagName('w:tr');
-        Array.from(trNodes).forEach(trNode => {
-          if (trNode.hasAttribute('w14:textId')) {
-            trNode.setAttribute('w14:textId', '77777777');
-          }
-
-          if (trNode.hasAttribute('w:rsidR')) {
-            trNode.setAttribute('w:rsidR', '00000000');
-          }
-
-          if (trNode.hasAttribute('w:rsidRDefault')) {
-            trNode.setAttribute('w:rsidRDefault', '00000000');
-          }
-        });
         // 重新序列化 XML 文档为字符串
         const serializer = new XMLSerializer();
         const updatedXml = serializer.serializeToString(docXml);
