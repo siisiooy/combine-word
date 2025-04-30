@@ -1,6 +1,6 @@
 {
   "name": "combine-word",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "A package to merge multiple Word (.docx) documents into one, including headers, footers, and metadata.",
   "main": "dist/combine-word.js",
   "types": "dist/combine-word.d.ts",
