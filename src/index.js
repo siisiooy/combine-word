@@ -27,6 +27,8 @@ const { combineDocuments, combineRelationships, combineAppInfo, mergeFiles, upda
  *   // 在此处理保存的文件数据
  * });
  */
+
+// TODO: 三个文件合并的话，rel关系会出问题，ID重复且文件复制忽略了 customXml
 class CombineWord {
   constructor(options = {}, files = []) {
     /**
