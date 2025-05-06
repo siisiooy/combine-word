@@ -1,6 +1,7 @@
 const fs = require('fs-extra');
 const path = require('path');
-const CombineWord = require('../dist/combine-word'); // 引用打包后的文件
+// const CombineWord = require('../dist/combine-word'); // 引用打包后的文件
+const CombineWord = require('../src/index'); // 引用打包后的文件
 
 // 读取 example 目录下的 Word 文件
 const inputDir = path.resolve(__dirname, "./example"); // 需要合并的 Word 文件目录

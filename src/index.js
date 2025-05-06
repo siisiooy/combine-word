@@ -89,24 +89,10 @@ class CombineWord {
    * @private
    */
   preloadDocuments(files) {
-    let relIdOffset = -1;
-    let styleIdOffset = -1;
-    let styleNumIdOffset = 0;
-    let relationIndex = { headerIndex: 1, footerIndex: 1, mediaIndex: 1 };
-
     // 遍历每个文件，处理其关系（rels）和样式
-    for (const zip of files) {
-      const { nextRelId, fileIndexMap } = processRels(zip, relIdOffset, relationIndex);
-      const { nextStyleId, styleNumStart } = processStyles(zip, styleIdOffset, styleNumIdOffset);
-
-      // 更新偏移量和索引
-      relationIndex = fileIndexMap;
-      relIdOffset = nextRelId;
-      styleIdOffset = nextStyleId;
-      styleNumIdOffset = styleNumStart;
-    }
-
-    // 合并文档内容、关系和媒体文件
+    processRels(files);
+    processStyles(files);
+    // 合并文档内容和媒体文件
     combineDocuments(files, this._pageBreak);
     combineRelationships(files);
     combineAppInfo(files);

@@ -4,99 +4,99 @@ const { DOMParser, XMLSerializer } = require('xmldom');
  * 处理 Word 文档中的关系（rels）XML。
  * 此函数会重命名一些元素，如页眉、页脚和媒体文件，更新关系 ID，并处理文件的删除和添加。
  * 
- * @param {object} zip - 包含 Word 文档内容的 ZIP 文件对象。该对象通常来自于一个 ZIP 库，如 JSZip。
- * @param {number} [relIdStart=-1] - 起始关系 ID。如果未提供，则默认为 -1。用于控制生成的关系 ID。
- * @param {object} [startIndex={ headerIndex: 1, footerIndex: 1, mediaIndex: 1 }] - 页眉、页脚和媒体文件的起始索引，默认为 { headerIndex: 1, footerIndex: 1, mediaIndex: 1 }。
- * @returns {object} - 返回一个包含更新后的关系 ID 和文件索引映射的对象。
- *    - nextRelId: 下一个可用的关系 ID。
- *    - fileIndexMap: 包含页眉、页脚和媒体文件的索引映射。
+ * @param {object} _files - 包含 Word 文档内容的 ZIP 文件对象数组。
+ * @returns {void} 函数没有返回值，直接修改 ZIP 文件中的内容。
  */
-function processRels(zip, relIdStart = -1, startIndex = { headerIndex: 1, footerIndex: 1, mediaIndex: 1 }) {
+function processRels(_files) {
   const relsPath = 'word/_rels/document.xml.rels';
-  const xml = zip.file(relsPath).asText();
-  if (!xml) {
-    return { mapping: {}, nextRelId: relIdStart };
-  }
 
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xml, 'application/xml');
-  const relationships = doc.getElementsByTagName('Relationship');
+  const fileIndexMap = {
+    headerIndex: 1,
+    footerIndex: 1,
+    mediaIndex: 1,
+  };
+  let relId = 1;
+  const targetList = [];
 
-  // 用来存储需要重命名的文件任务
-  const renameTasks = [];
-  const mapping = {};
-  const fileIndexMap = startIndex;
-  const baseRelFile = relIdStart === -1;
-  let cur = relIdStart === -1 ? 1 : relIdStart;
+  // 遍历每个文件
+  for (let fileIndex = 0; fileIndex < _files.length; fileIndex++) {
+    const zip = _files[fileIndex];
+    const parser = new DOMParser();
+    const xml = zip.file(relsPath).asText();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    const relationships = doc.getElementsByTagName('Relationship');
+    const renameTasks = [];
+    const mapping = {};
 
-  // 遍历所有关系，处理每一个
-  for (let i = 0; i < relationships.length; i++) {
-    const rel = relationships[i];
-    let oldName = '';
-    let newName = '';
-    const target = rel.getAttribute('Target');
+    // 遍历所有关系，处理每一个
+    for (let i = 0; i < relationships.length; i++) {
+      const rel = relationships[i];
+      let oldName = '';
+      let newName = '';
+      const target = rel.getAttribute('Target');
+      if (!['header', 'footer', 'media/'].some(item => target.startsWith(item)) && targetList.includes(target)) {
+        continue; // 如果目标已经存在，跳过处理
+      }
+      if (!['header', 'footer', 'media/'].some(item => target.startsWith(item))) {
+        targetList.push(target);
+      }
 
-    if (target.includes('header')) {
-      oldName = target.split('/').pop(); // 获取文件名，比如 "header1.xml"
-      const ext = oldName.slice(oldName.lastIndexOf('.')); // 获取文件扩展名，比如 ".xml"
-      newName = `header${fileIndexMap.headerIndex++}${ext}`; // 例如 "header2.xml"
-    }
-    if (target.includes('footer')) {
-      oldName = target.split('/').pop();
-      const ext = oldName.slice(oldName.lastIndexOf('.'));
-      newName = `footer${fileIndexMap.footerIndex++}${ext}`;
-    }
-    if (target.includes('media/')) {
-      oldName = target;
-      newName = oldName.replace(/(\d+)(?=\.[^.]+$)/, `${fileIndexMap.mediaIndex++}`);
-    }
-
-    // 如果是基本的关系文件，更新目标路径
-    if (baseRelFile) {
-      const oldId = rel.getAttribute('Id');
-      cur = oldId && Number(oldId.replace('rId', '')) > cur ? Number(oldId.replace('rId', '')) : cur;
-      if (["header", "footer", "media/"].some(item => target.includes(item))) {
+      if (target.includes('header')) {
+        oldName = target.split('/').pop(); // 获取文件名，比如 "header1.xml"
+        const ext = oldName.slice(oldName.lastIndexOf('.')); // 获取文件扩展名，比如 ".xml"
+        newName = `header${fileIndexMap.headerIndex++}${ext}`; // 例如 "header2.xml"
+      }
+      if (target.includes('footer')) {
+        oldName = target.split('/').pop();
+        const ext = oldName.slice(oldName.lastIndexOf('.'));
+        newName = `footer${fileIndexMap.footerIndex++}${ext}`;
+      }
+      if (target.includes('media/')) {
+        oldName = target;
+        newName = oldName.replace(/(\d+)(?=\.[^.]+$)/, `${fileIndexMap.mediaIndex++}`);
+      }
+      // 将需要重命名的文件任务存储到数组中
+      if (oldName) {
+        const folder = zip.file(`word/${oldName}`).asUint8Array();
+        if (folder) {
+          renameTasks.push({
+            oldName: `word/${oldName}`,
+            newName: `word/${newName}`,
+            folder
+          });
+        }
         rel.setAttribute('Target', newName);
       }
-    } else {
-      if (["header", "footer", "media/"].some(item => target.includes(item))) {
+
+      // 如果是基本的关系文件，更新目标路径
+      if (fileIndex === 0) {
         const oldId = rel.getAttribute('Id');
-        const newId = 'rId' + (cur++);
-        mapping[oldId] = newId;
+        relId = oldId && (Number(oldId.replace('rId', '')) > relId) ? Number(oldId.replace('rId', '')) : relId;
+      } else {
+        const oldId = rel.getAttribute('Id');
+        const newId = 'rId' + (relId++);
         rel.setAttribute('Id', newId);
-        rel.setAttribute('Target', newName);
+        mapping[oldId] = newId;
       }
     }
-    // 将需要重命名的文件任务存储到数组中
-    if (oldName) {
-      const folder = zip.file(`word/${oldName}`).asUint8Array();
-      if (folder) {
-        renameTasks.push({
-          oldName: `word/${oldName}`,
-          newName: `word/${newName}`,
-          folder
-        });
-      }
-    }
+    const builder = new XMLSerializer();
+    const updated = builder.serializeToString(doc);
+    zip.file(relsPath, updated);
+
+    if (fileIndex === 0) relId++;
+
+    // 执行文件重命名任务
+    renameTasks.forEach(task => {
+      zip.remove(task.oldName); // 删除旧文件
+    });
+    renameTasks.forEach(task => {
+      zip.file(task.newName, task.folder); // 添加重命名后的文件
+    });
+
+    // 处理相关文件引用
+    processDocument(zip, mapping);
+    processTypeRels(zip, renameTasks);
   }
-
-  // 执行文件重命名任务
-  renameTasks.forEach(task => {
-    zip.remove(task.oldName); // 删除旧文件
-  });
-  renameTasks.forEach(task => {
-    zip.file(task.newName, task.folder); // 添加重命名后的文件
-  });
-
-  if (baseRelFile) cur++;
-  const builder = new XMLSerializer();
-  const updated = builder.serializeToString(doc);
-  zip.file(relsPath, updated);
-
-  // 处理相关文件引用
-  processDocument(zip, mapping);
-  processTypeRels(zip, renameTasks);
-  return { nextRelId: cur, fileIndexMap };
 }
 
 /**
@@ -138,70 +138,71 @@ function processTypeRels(zip, replaceMapping = []) {
 /**
  * 处理 Word 文档中的 styles.xml 文件，重命名样式 ID，并处理样式的继承、下一样式、链接和编号。
  *
- * @param {object} zip - 包含 Word 文档内容的 ZIP 文件对象。
- * @param {number} [styleStart=-1] - 起始样式 ID。如果未提供，则默认为 -1。用于控制样式 ID 的生成。
- * @returns {object} - 返回一个包含下一个样式 ID 的对象。
- *    - nextStyleId: 下一个可用的样式 ID。
+ * @param {object} _files - 包含 Word 文档内容的 ZIP 文件对象数组。
+ * @returns {void} 函数没有返回值，直接修改 ZIP 文件中的内容。
  */
-function processStyles(zip, styleStart = -1, styleNumStart = 0) {
+function processStyles(_files) {
   const relsPath = 'word/styles.xml';
-  const xml = zip.file(relsPath).asText();
-  if (!xml) {
-    return { mapping: {}, nextStyleId: styleStart };
-  }
-
   const parser = new DOMParser();
-  const doc = parser.parseFromString(xml, 'application/xml');
-  const styles = doc.getElementsByTagName('w:style');
-  const stylesArray = Array.from(styles);
-
-  // 根据 w:styleId 从小到大排序
-  stylesArray.sort((a, b) => {
-    const idA = a.getAttribute('w:styleId');
-    const idB = b.getAttribute('w:styleId');
-
-    // 如果是纯数字 ID，可以将它们作为数字进行比较
-    if (/^\d+$/.test(idA) && /^\d+$/.test(idB)) {
-      return Number(idA) - Number(idB);
-    }
-
-    // 否则按字母顺序比较
-    return idA.localeCompare(idB);
-  });
-
-  const mapping = {};
-  const updateIds = ['w:basedOn', 'w:next', 'w:link', 'w:numId'];
-  let cur = styleStart;
-  let numCur = styleNumStart;
-
-  // 遍历样式，处理每一个样式 ID
-  for (let i = 0; i < stylesArray.length; i++) {
-    const style = stylesArray[i];
-    let oldId = style.getAttribute('w:styleId');
-    let newId;
-    if (!mapping[oldId]){
-      // 如果 ID 为纯数字，直接使用数字 ID
-      if (/^\d+$/.test(oldId)) {
-        newId = Number(cur) + styleNumStart; // 使用数字 ID
-        numCur = Number(cur) > numCur ? Number(cur) : numCur;
-      } else {
-        newId = cur === -1 ? 'a' : 'a' + cur;
-        cur++;
-      }
-      mapping[oldId] = newId;
-    }
-    newId = mapping[oldId];
-    style.setAttribute('w:styleId', newId); // 更新样式 ID
-    for(const tagName of updateIds) {
-      processStyleAttribute(style, tagName, 'w:val', mapping); // 更新样式属性
-    }
-  }
   const builder = new XMLSerializer();
-  const updated = builder.serializeToString(doc);
-  zip.file(relsPath, updated);
-  processDocument(zip, mapping);
-  processFileRels(zip, mapping);
-  return { nextStyleId: cur, styleNumStart: numCur };
+  let styleStart = -1;
+  let styleNumStart = 0;
+
+  // 遍历每个文件
+  for (let i = 0; i < _files.length; i++) {
+    const zip = _files[i];
+    const xml = zip.file(relsPath).asText();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    const styles = doc.getElementsByTagName('w:style');
+    const stylesArray = Array.from(styles);
+
+    // 根据 w:styleId 从小到大排序
+    stylesArray.sort((a, b) => {
+      const idA = a.getAttribute('w:styleId');
+      const idB = b.getAttribute('w:styleId');
+
+      // 如果是纯数字 ID，可以将它们作为数字进行比较
+      if (/^\d+$/.test(idA) && /^\d+$/.test(idB)) {
+        return Number(idA) - Number(idB);
+      }
+
+      // 否则按字母顺序比较
+      return idA.localeCompare(idB);
+    });
+
+    const mapping = {};
+    const updateIds = ['w:basedOn', 'w:next', 'w:link', 'w:numId'];
+    let cur = styleStart;
+    let numCur = styleNumStart;
+
+    // 遍历样式，处理每一个样式 ID
+    for (let i = 0; i < stylesArray.length; i++) {
+      const style = stylesArray[i];
+      let oldId = style.getAttribute('w:styleId');
+      let newId;
+      if (!mapping[oldId]) {
+        // 如果 ID 为纯数字，直接使用数字 ID
+        if (/^\d+$/.test(oldId)) {
+          newId = Number(cur) + styleNumStart; // 使用数字 ID
+          numCur = Number(cur) > numCur ? Number(cur) : numCur;
+        } else {
+          newId = cur === -1 ? 'a' : 'a' + cur;
+          cur++;
+        }
+        mapping[oldId] = newId;
+      }
+      newId = mapping[oldId];
+      style.setAttribute('w:styleId', newId); // 更新样式 ID
+      for (const tagName of updateIds) {
+        processStyleAttribute(style, tagName, 'w:val', mapping); // 更新样式属性
+      }
+    }
+
+    const updated = builder.serializeToString(doc);
+    zip.file(relsPath, updated);
+    processDocument(zip, mapping);
+    processFileRels(zip, mapping);
+  }
 }
 
 /**

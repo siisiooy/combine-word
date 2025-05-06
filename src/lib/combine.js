@@ -350,12 +350,13 @@ function combineRelationships(_files) {
  * 
  * @param {Array} _files - 包含多个 Word 文档的 ZIP 文件数组。
  * @returns {object} - 返回合并后的 ZIP 文件。
+ * TODO: 'word/endnotes', 'word/footnotes','word/numbering' 这类文件没做对应的合并处理
  */
 function mergeFiles(_files) {
   let baseZip;
   let baseStyleDoms;
   const stylePath = 'word/styles.xml';
-
+  const mediaFolders = [];
   // 遍历每个文件
   for (const zip of _files) {
     if (!baseZip) {
@@ -368,16 +369,18 @@ function mergeFiles(_files) {
       baseStyleDoms = baseDoc.getElementsByTagName('w:styles')[0];
     } else {
       // 获取当前文件的媒体文件和 header/footer 文件
-      const mediaFolder = zip.folder("word");
-
+      const mediaFolder = zip.folder();
       // 复制 word/media 中的文件到第一个文件对应目录
       if (mediaFolder) {
         Object.keys(mediaFolder.files).forEach(fileName => {
-          // TODO: 'word/endnotes', 'word/footnotes','word/numbering' 这类文件没做对应的合并处理，
-          if (['word/media/', 'word/header', 'word/footer', 'word/endnotes', 'word/footnotes', 'word/numbering'].some(item => fileName.startsWith(item))) {
-            const file = mediaFolder.files[fileName];
-            baseZip.file(fileName, file.asUint8Array());  // 将文件复制到 baseZip 中
+          if (fileName.startsWith("word/") || fileName.startsWith('customXml/')) {
+            const file = mediaFolder.files[fileName];           
+            if (!file.dir && !fileName.startsWith("word/_rels/document.xml.rels") && !fileName.startsWith("word/document.xml") && !mediaFolders.includes(fileName)) {
+              mediaFolders.push(fileName);
+              baseZip.file(fileName, file.asUint8Array());  // 将文件复制到 baseZip 中
+            }
           }
+
           if (fileName === stylePath) {
             const xmlText = mediaFolder.files[fileName].asText();
             const parser = new DOMParser();
