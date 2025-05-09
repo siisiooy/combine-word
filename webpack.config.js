@@ -30,7 +30,4 @@ module.exports = {
     }),
   ],
   devtool: 'source-map',
-  externals: {
-    'jszip': 'JSZip',
-  }
 };
