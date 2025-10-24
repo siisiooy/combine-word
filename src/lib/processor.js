@@ -336,4 +336,255 @@ function processFileRels(zip, mapping) {
   }
 }
 
-module.exports = { processRels, processStyles };
+/**
+ * 获取最大的关系ID（rId）
+ * 逻辑：读取document.xml.rels，找到最大的数字ID
+ * @param {object} _files - 包含 Word 文档内容的 ZIP 文件对象数组。
+ * @returns {object} 最大的rId（如"rId12"）
+ */
+function getMaxRelationshipId(_files) {
+  const relsPath = 'word/_rels/document.xml.rels';
+  const headerType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+  const footerType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+  const ids = [];
+  const headerIds = [];
+  const footerIds = [];
+  // 遍历每个文件
+  for (let fileIndex = 0; fileIndex < _files.length; fileIndex++) {
+    const zip = _files[fileIndex];
+    const parser = new DOMParser();
+    const xml = zip.file(relsPath).asText();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    const relationships = doc.getElementsByTagName('Relationship');
+    for (let i = 0; i < relationships.length; i++) {
+      const id = relationships[i].getAttribute('Id');
+      const num = parseInt(id.replace('rId', ''), 10);
+      const type = relationships[i].getAttribute('Type');
+      const target = relationships[i].getAttribute('Target').replace('.xml', '');
+      
+      if (type === headerType) {
+        const targetNum = parseInt(target.replace('header', ''), 10);
+        headerIds.push(targetNum);
+      }
+      if (type === footerType) {
+        const targetNum = parseInt(target.replace('footer', ''), 10);
+        footerIds.push(targetNum);
+      }
+      if (!isNaN(num)) {
+        ids.push(num);
+      }
+    }
+  }
+  // 计算新ID
+  const maxId = ids.length > 0 ? Math.max(...ids) : 0;
+  const maxHeaderId = headerIds.length > 0 ? Math.max(...headerIds) : 0;
+  const maxFooterId = footerIds.length > 0 ? Math.max(...footerIds) : 0;
+  return {
+    rindex: +maxId,
+    rid: `rId${maxId}`,
+    hindex: +maxHeaderId,
+    findex: +maxFooterId,
+  };
+}
+
+
+/**
+ * 创建空白页眉XML（若已存在则清空内容）
+ * @param {JSZip} zip - 文档ZIP对象
+ * @param {string} headerId - 页眉关系ID（如rId10）
+ * @param {string} headerNum - 页眉编号
+ */
+function createBlankHeaderXml(zip, headerId, headerNum) {
+  const relsPath = 'word/_rels/document.xml.rels';
+  const headerPath = `word/header${headerNum}.xml`;
+  const templatePath = 'word/header1.xml';
+  const contentTypesPath = '[Content_Types].xml'; // 内容类型文件路径
+  const wNs = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'; // Word命名空间
+  const relNs = 'http://schemas.openxmlformats.org/package/2006/relationships'; // 关系命名空间
+  const contentTypeNs = 'http://schemas.openxmlformats.org/package/2006/content-types'; // 内容类型命名空间
+
+  // 处理页眉文件内容
+  if (zip.file(templatePath)) {
+    const existingXml = zip.file(templatePath).asText();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(existingXml, 'application/xml');
+    const root = xmlDoc.documentElement;
+
+    // 清空所有子节点
+    while (root.firstChild) {
+      root.removeChild(root.firstChild);
+    }
+
+    // 添加空白段落（避免空文件）
+    const p = xmlDoc.createElementNS(wNs, 'w:p');
+    const r = xmlDoc.createElementNS(wNs, 'w:r');
+    const t = xmlDoc.createElementNS(wNs, 'w:t');
+    r.appendChild(t);
+    p.appendChild(r);
+    root.appendChild(p);
+    // 更新ZIP文件
+    const builder = new XMLSerializer();
+    zip.file(headerPath, builder.serializeToString(xmlDoc));
+  } else {
+    // 若文件不存在，创建默认空白页眉
+    const defaultHeader = `
+      <w:hdr xmlns:w="${wNs}">
+        <w:p>
+          <w:r>
+            <w:t></w:t>
+          </w:r>
+        </w:p>
+      </w:hdr>
+    `.trim();
+    zip.file(headerPath, defaultHeader);
+  }
+
+  // 处理关系文件（注册页眉引用）
+  const relsFile = zip.file(relsPath);
+  if (!relsFile) {
+    throw new Error(`未找到关系文件: ${relsPath}`);
+  }
+  const relsXml = relsFile.asText();
+  const parser = new DOMParser();
+  const relsDoc = parser.parseFromString(relsXml, 'application/xml');
+
+  // 创建新关系节点
+  const relElement = relsDoc.createElementNS(relNs, 'Relationship');
+  relElement.setAttribute('Id', headerId);
+  relElement.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header');
+  relElement.setAttribute('Target', `header${headerNum}.xml`);
+
+  // 添加到关系文件根节点
+  relsDoc.documentElement.appendChild(relElement);
+
+  // 更新关系文件
+  const builder = new XMLSerializer();
+  zip.file(relsPath, builder.serializeToString(relsDoc));
+
+  // 处理内容类型文件（注册页眉内容类型）
+  const contentTypesFile = zip.file(contentTypesPath);
+  if (!contentTypesFile) {
+    throw new Error(`未找到内容类型文件: ${contentTypesPath}`);
+  }
+  const contentTypesXml = contentTypesFile.asText();
+  const contentTypesDoc = parser.parseFromString(contentTypesXml, 'application/xml');
+  const typesRoot = contentTypesDoc.documentElement;
+
+  // 检查是否已存在相同的内容类型定义
+  const existingOverride = Array.from(typesRoot.getElementsByTagNameNS(contentTypeNs, 'Override'))
+    .find(override => override.getAttribute('PartName') === `/${headerPath}`);
+
+  if (!existingOverride) {
+    // 创建新的内容类型定义节点
+    const overrideElement = contentTypesDoc.createElementNS(contentTypeNs, 'Override');
+    overrideElement.setAttribute('PartName', `/${headerPath}`);
+    overrideElement.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml');
+    typesRoot.appendChild(overrideElement);
+
+    // 更新内容类型文件
+    zip.file(contentTypesPath, builder.serializeToString(contentTypesDoc));
+  }
+}
+
+
+/**
+ * 创建空白页脚XML（若已存在则清空内容）
+ * @param {JSZip} zip - 文档ZIP对象
+ * @param {string} footerId - 页脚关系ID（如rId11）
+ * @param {string} footerNum - 页脚编号
+ */
+function createBlankFooterXml(zip, footerId, footerNum) {
+  const relsPath = 'word/_rels/document.xml.rels';
+  const footerPath = `word/footer${footerNum}.xml`;
+  const templatePath = 'word/footer1.xml'; // 以现有第一个页脚为模板
+  const contentTypesPath = '[Content_Types].xml';
+  const wNs = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'; // Word命名空间
+  const relNs = 'http://schemas.openxmlformats.org/package/2006/relationships'; // 关系命名空间
+  const contentTypeNs = 'http://schemas.openxmlformats.org/package/2006/content-types'; // 内容类型命名空间
+
+  // 处理页脚文件内容
+  if (zip.file(templatePath)) {
+    // 基于现有页脚模板创建空白页脚
+    const existingXml = zip.file(templatePath).asText();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(existingXml, 'application/xml');
+    const root = xmlDoc.documentElement;
+
+    // 清空所有子节点
+    while (root.firstChild) {
+      root.removeChild(root.firstChild);
+    }
+
+    // 添加空白段落（避免空文件导致的格式问题）
+    const p = xmlDoc.createElementNS(wNs, 'w:p');
+    const r = xmlDoc.createElementNS(wNs, 'w:r');
+    const t = xmlDoc.createElementNS(wNs, 'w:t');
+    r.appendChild(t);
+    p.appendChild(r);
+    root.appendChild(p);
+
+    // 更新ZIP中的页脚文件
+    const builder = new XMLSerializer();
+    zip.file(footerPath, builder.serializeToString(xmlDoc));
+  } else {
+    // 若没有模板，创建默认空白页脚
+    const defaultFooter = `
+      <w:ftr xmlns:w="${wNs}">
+        <w:p>
+          <w:r>
+            <w:t></w:t>
+          </w:r>
+        </w:p>
+      </w:ftr>
+    `.trim();
+    zip.file(footerPath, defaultFooter);
+  }
+
+  // 处理关系文件（注册页脚引用）
+  const relsFile = zip.file(relsPath);
+  if (!relsFile) {
+    throw new Error(`未找到关系文件: ${relsPath}`);
+  }
+  const relsXml = relsFile.asText();
+  const parser = new DOMParser();
+  const relsDoc = parser.parseFromString(relsXml, 'application/xml');
+
+  // 创建新的页脚关系节点
+  const relElement = relsDoc.createElementNS(relNs, 'Relationship');
+  relElement.setAttribute('Id', footerId);
+  relElement.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer');
+  relElement.setAttribute('Target', `footer${footerNum}.xml`);
+
+  // 添加到关系文件根节点
+  relsDoc.documentElement.appendChild(relElement);
+
+  // 更新关系文件
+  const builder = new XMLSerializer();
+  zip.file(relsPath, builder.serializeToString(relsDoc));
+
+  // 处理内容类型文件（注册页脚内容类型）
+  const contentTypesFile = zip.file(contentTypesPath);
+  if (!contentTypesFile) {
+    throw new Error(`未找到内容类型文件: ${contentTypesPath}`);
+  }
+  const contentTypesXml = contentTypesFile.asText();
+  const contentTypesDoc = parser.parseFromString(contentTypesXml, 'application/xml');
+  const typesRoot = contentTypesDoc.documentElement;
+
+  // 检查是否已存在相同的内容类型定义
+  const existingOverride = Array.from(typesRoot.getElementsByTagNameNS(contentTypeNs, 'Override'))
+    .find(override => override.getAttribute('PartName') === `/${footerPath}`);
+
+  if (!existingOverride) {
+    // 创建页脚内容类型定义节点
+    const overrideElement = contentTypesDoc.createElementNS(contentTypeNs, 'Override');
+    overrideElement.setAttribute('PartName', `/${footerPath}`);
+    overrideElement.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml');
+    typesRoot.appendChild(overrideElement);
+
+    // 更新内容类型文件
+    zip.file(contentTypesPath, builder.serializeToString(contentTypesDoc));
+  }
+}
+
+module.exports = { processRels, processStyles, getMaxRelationshipId, createBlankHeaderXml, createBlankFooterXml };

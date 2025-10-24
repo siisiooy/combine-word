@@ -1,5 +1,5 @@
 const { DOMParser, XMLSerializer } = require('xmldom');
-
+const { getMaxRelationshipId, createBlankHeaderXml, createBlankFooterXml } = require('./processor');
 
 
 /**
@@ -145,7 +145,9 @@ function combineAppInfo(_files) {
 function combineDocuments(_files, _pageBreak) {
   const docPath = 'word/document.xml';
   const documents = [];
-  let docXml;
+  let docXml, headeRid, footerRid, hasDefaultHeader = false, hasDefaultFooter = false;
+  // 获取关系最大的关系id
+  const { rindex, hindex, findex } = getMaxRelationshipId(_files);
 
   // 遍历每个文件
   for (let i = 0; i < _files.length; i++) {
@@ -185,15 +187,52 @@ function combineDocuments(_files, _pageBreak) {
 
           // 替换 <w:sectPr> 为 <w:p><w:rPr>  <w:sectPr>  </w:rPr></w:p>
           const newSectPr = doc.createElement('w:p');
-          // w:pPr
           const pPr = doc.createElement('w:pPr');
           const rPr = doc.createElement('w:rPr');
           pPr.appendChild(rPr);
           pPr.appendChild(sectPr);
-
           newSectPr.appendChild(pPr);
 
           if (!!_pageBreak) {
+            // <w:headerReference w:type="default" r:id="<rIdn>" />
+            // <w:footerReference w:type="default" r:id="<rIdn>" />
+            const prHasDefaultHeader = Array.from(sectPr.childNodes).some(child =>
+              child.tagName === 'w:headerReference' &&
+              child.getAttribute('w:type') === 'default'
+            );
+            const prHasDefaultFooter = Array.from(sectPr.childNodes).some(child =>
+              child.tagName === 'w:footerReference' &&
+              child.getAttribute('w:type') === 'default'
+            );
+            prHasDefaultHeader && (hasDefaultHeader = true)
+            prHasDefaultFooter && (hasDefaultFooter = true)
+            if (!prHasDefaultHeader) {
+              if (footerRid && !headeRid) {
+                headeRid = `rId${rindex + 2}`;
+              } else {
+                headeRid = headeRid || `rId${rindex + 1}`;
+              }
+              // 创建空白页眉引用
+              const headerRef = doc.createElement('w:headerReference');
+              headerRef.setAttribute('w:type', 'default');
+              headerRef.setAttribute('r:id', headeRid);
+              sectPr.appendChild(headerRef);
+            }
+
+            // 如果没有默认页脚，创建空白页脚并添加引用
+            if (!prHasDefaultFooter) {
+              if (!footerRid && headeRid) {
+                footerRid = `rId${rindex + 2}`;
+              } else {
+                footerRid = footerRid || `rId${rindex + 1}`;
+              }
+              // 创建空白页脚引用
+              const footerRef = doc.createElement('w:footerReference');
+              footerRef.setAttribute('w:type', 'default');
+              footerRef.setAttribute('r:id', footerRid);
+              sectPr.appendChild(footerRef);
+            }
+
             const r = doc.createElement('w:r');
             const br = doc.createElement('w:br');
             br.setAttribute('w:type', 'page');
@@ -217,7 +256,12 @@ function combineDocuments(_files, _pageBreak) {
       bodyNode.appendChild(childNode);
     });
   });
-
+  if (hasDefaultHeader) {
+    createBlankHeaderXml(_files[0], headeRid, hindex + 1)
+  }
+  if (hasDefaultFooter) {
+    createBlankFooterXml(_files[0], footerRid, findex + 1)
+  }
   // 结合 docXml 和 documents 构成新的 xml
   const serializer = new XMLSerializer();
   const updatedXml = serializer.serializeToString(docXml); // 将更新后的 docXml 转换为字符串
@@ -374,7 +418,7 @@ function mergeFiles(_files) {
       if (mediaFolder) {
         Object.keys(mediaFolder.files).forEach(fileName => {
           if (fileName.startsWith("word/") || fileName.startsWith('customXml/')) {
-            const file = mediaFolder.files[fileName];           
+            const file = mediaFolder.files[fileName];
             if (!file.dir && !fileName.startsWith("word/_rels/document.xml.rels") && !fileName.startsWith("word/document.xml") && !mediaFolders.includes(fileName)) {
               mediaFolders.push(fileName);
               baseZip.file(fileName, file.asUint8Array());  // 将文件复制到 baseZip 中

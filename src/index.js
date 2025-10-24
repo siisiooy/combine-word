@@ -92,6 +92,7 @@ class CombineWord {
     // 遍历每个文件，处理其关系（rels）和样式
     processRels(files);
     processStyles(files);
+
     // 合并文档内容和媒体文件
     combineDocuments(files, this._pageBreak);
     combineRelationships(files);
