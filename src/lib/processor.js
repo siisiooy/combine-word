@@ -182,7 +182,7 @@ function processStyles(_files) {
         // 如果 ID 为纯数字，直接使用数字 ID
         if (/^\d+$/.test(oldId)) {
           newId = Number(styleStart) + styleNumStart; // 使用数字 ID
-          numCur = Number(styleStart) > numCur ? Number(styleStart) : numCur;
+          styleNumStart = Number(styleStart) > styleNumStart ? Number(styleStart) : styleNumStart;
         } else {
           newId = styleStart === -1 ? 'a' : 'a' + styleStart;
           styleStart++;
