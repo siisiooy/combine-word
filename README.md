@@ -82,6 +82,8 @@ This project is licensed under the [Apache License 2.0](https://www.apache.org/l
 - [ ]. 选择不分节后的页数计算存在问题。
 
 ## VERSION 版本更新日志
+### v1.0.7
+- 修复单文件多表格合并后样式丢失问题
 
 ### v1.0.6
 - 修复合并后分节文档页眉页脚默认为连续上一节的问题

@@ -171,9 +171,7 @@ function processStyles(_files) {
     });
 
     const mapping = {};
-    const updateIds = ['w:basedOn', 'w:next', 'w:link', 'w:numId'];
-    let cur = styleStart;
-    let numCur = styleNumStart;
+    const updateIds = ['w:basedOn', 'w:next', 'w:link', 'w:numId', 'w:tblStyle'];
 
     // 遍历样式，处理每一个样式 ID
     for (let i = 0; i < stylesArray.length; i++) {
@@ -183,11 +181,11 @@ function processStyles(_files) {
       if (!mapping[oldId]) {
         // 如果 ID 为纯数字，直接使用数字 ID
         if (/^\d+$/.test(oldId)) {
-          newId = Number(cur) + styleNumStart; // 使用数字 ID
-          numCur = Number(cur) > numCur ? Number(cur) : numCur;
+          newId = Number(styleStart) + styleNumStart; // 使用数字 ID
+          numCur = Number(styleStart) > numCur ? Number(styleStart) : numCur;
         } else {
-          newId = cur === -1 ? 'a' : 'a' + cur;
-          cur++;
+          newId = styleStart === -1 ? 'a' : 'a' + styleStart;
+          styleStart++;
         }
         mapping[oldId] = newId;
       }
@@ -361,7 +359,7 @@ function getMaxRelationshipId(_files) {
       const num = parseInt(id.replace('rId', ''), 10);
       const type = relationships[i].getAttribute('Type');
       const target = relationships[i].getAttribute('Target').replace('.xml', '');
-      
+
       if (type === headerType) {
         const targetNum = parseInt(target.replace('header', ''), 10);
         headerIds.push(targetNum);
